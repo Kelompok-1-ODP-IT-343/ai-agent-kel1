@@ -32,7 +32,11 @@ CORS(
                 "http://127.0.0.1:3000",
                 "http://localhost:8080",            # if you ever proxy FE here
                 "http://127.0.0.1:8080",
-                "https://local-dev.satuatap.my.id", # your dev domain
+                "http://localhost:3002",
+                "http://127.0.0.1:3002",       
+                "http://localhost:3004",
+                "http://127.0.0.1:3004",      # if you ever proxy FE here
+                "https://local-dev.satuatap.my.id" # your dev domain
             ],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
@@ -151,10 +155,107 @@ def upsert_credit_profile():
             s.commit()
             return jsonify({"success": True, "created": False, "user_id": user_id, "profile": asdict(dc)})
 
+@app.route("/api/v1/recommendation-system", methods=["POST"])
+def recommendation_system():
+    """
+    KPR Recommendation System endpoint.
+    
+    Body:
+    - {
+        "kprApplication": {...},  // KPR application data with userInfo
+        "creditScore": {...}      // Optional: pre-computed FICO score
+      }
+    
+    If creditScore is not provided, it will be calculated using userId from kprApplication.
+    """
+    if not request.is_json:
+        return jsonify({"success": False, "message": "Content-Type harus application/json"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    kpr_application = payload.get("kprApplication")
+    credit_score_data = payload.get("creditScore")
+
+    if not kpr_application:
+        return jsonify({"success": False, "message": "kprApplication wajib"}), 400
+
+    # Extract user_id from kprApplication
+    try:
+        data = kpr_application.get("data", {}) if isinstance(kpr_application, dict) else {}
+        user_info = data.get("userInfo", {}) if isinstance(data, dict) else {}
+        user_id = user_info.get("userId")
+        
+        if not user_id:
+            return jsonify({"success": False, "message": "userId tidak ditemukan dalam kprApplication"}), 400
+        
+        # Normalize user_id to string
+        user_id = str(user_id)
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Error parsing kprApplication: {str(e)}"}), 400
+
+    # Get or compute credit score
+    if credit_score_data:
+        # Use provided credit score
+        fico_response = credit_score_data
+    else:
+        # Compute credit score from our system
+        with SessionLocal() as s:
+            rec = s.get(CreditProfileORM, user_id)
+            if rec is None:
+                # Create dummy profile if not exists
+                dc = make_dummy_profile(seed=user_id)
+                rec = dc_to_orm(user_id, dc)
+                s.add(rec)
+                s.commit()
+            profile_dc = orm_to_dc(rec)
+
+        score, breakdown = fico_like(profile_dc)
+        fico_response = {
+            "success": True,
+            "source": {"from_db": True},
+            "user_id": user_id,
+            "input_used": asdict(profile_dc),
+            "weights": WEIGHTS,
+            "score": score,
+            "breakdown": breakdown,
+        }
+
+    # Run recommendation system
+    try:
+        from services.recommendation_service import decide_ensemble
+        
+        result = decide_ensemble(
+            profile=kpr_application,
+            fico=fico_response
+        )
+        
+        return jsonify({
+            "success": True,
+            "recommendation": result["result"],
+            "credit_score_used": {
+                "user_id": user_id,
+                "score": fico_response.get("score"),
+                "breakdown": fico_response.get("breakdown", {})
+            },
+            "model_used": result.get("model"),
+            "timestamp": data.get("timestamp") if isinstance(data, dict) else None
+        })
+        
+    except ImportError as e:
+        return jsonify({
+            "success": False,
+            "message": "Recommendation service not available. Please install required dependencies: google-genai, python-dotenv"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Error processing recommendation: {str(e)}"
+        }), 500
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"ok": True})
 
 if __name__ == "__main__":
     # Dev server
-    app.run(host="0.0.0.0", port=9090, debug=True)
+    app.run(host="0.0.0.0", port=9009, debug=True)
