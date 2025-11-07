@@ -1,0 +1,95 @@
+name: ai-agent-kel1-dockerhub
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*", "release-*"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ai-agent-kel1
+  REGISTRY: docker.io
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # (Opsional) setup Python kalau kamu mau jalankan unit test
+      # - name: Set up Python
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: "3.12"
+      # - name: Install deps & run tests
+      #   run: |
+      #     pip install -r requirements.txt
+      #     pytest -q
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
+            type=sha,format=long
+            type=ref,event=tag
+
+      # --- SONARCLOUD (Commented) ---
+      # Pastikan file sonar-project.properties ada di repo
+      # - name: SonarCloud Scan
+      #   uses: SonarSource/sonarcloud-github-action@v2
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #   with:
+      #     args: >
+      #       -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+      #       -Dsonar.organization=${{ secrets.SONAR_ORG }}
+      #       -Dsonar.python.version=3.12
+
+      - name: Build and push (Docker Hub)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            PORT=8000
+
+      # --- TRIVY (Commented) ---
+      # Scan image yang sudah dibuild
+      # - name: Trivy Scan
+      #   uses: aquasecurity/trivy-action@0.24.0
+      #   with:
+      #     image-ref: ${{ steps.meta.outputs.tags }}
+      #     format: 'table'
+      #     exit-code: '0'         # ubah ke '1' kalau mau fail bila ada HIGH/CRITICAL
+      #     vuln-type: 'os,library'
+      #     severity: 'HIGH,CRITICAL'
