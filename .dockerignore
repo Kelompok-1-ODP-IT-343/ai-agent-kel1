@@ -11,8 +11,5 @@ __pycache__/
 .venv
 dist
 build
-*.sqlite
-*.db
-data/*.db
 **/.mypy_cache
 **/.pytest_cache
