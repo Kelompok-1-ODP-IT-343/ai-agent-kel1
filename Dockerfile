@@ -22,5 +22,5 @@ COPY . .
 ENV PORT=8000
 EXPOSE 8000
 
-# Sesuaikan modul FastAPI kamu (umum: app.main:app)
+## Sesuaikan modul FastAPI kamu (umum: app.main:app) 
 CMD ["python","-m","uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
