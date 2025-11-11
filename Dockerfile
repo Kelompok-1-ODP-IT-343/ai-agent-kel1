@@ -1,26 +1,29 @@
 # syntax=docker/dockerfile:1.7
-FROM python:3.12-slim AS base
+FROM python:3.12-slim
+
+# --- Environment setup ---
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=on \
-    POETRY_VIRTUALENVS_CREATE=false
+    PIP_NO_CACHE_DIR=on
+
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+# --- Install dependencies ---
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
   && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# --- penting: pastikan DB ikut ke image ---
+# --- Copy source code ---
 COPY data ./data
-
-# salin source
 COPY . .
 
-ENV PORT=8000
-EXPOSE 8000
+# --- Set environment variables ---
+ENV FLASK_APP=app.py
+ENV FLASK_RUN_HOST=0.0.0.0
+ENV FLASK_RUN_PORT=9090
+EXPOSE 9090
 
-## Sesuaikan modul FastAPI kamu (umum: app.main:app) 
-CMD ["python","-m","uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
+# --- Run Flask directly ---
+CMD ["flask", "run"]
