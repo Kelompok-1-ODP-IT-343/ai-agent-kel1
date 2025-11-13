@@ -94,12 +94,20 @@ jobs:
       #     vuln-type: 'os,library'
       #     severity: 'HIGH,CRITICAL'
 
-            # --- TRIVY SCAN (SIMPLE & CLEAR) ---
+                  # --- GET SHA TAG ONLY (Fix multiple targets) ---
+      - name: Get SHA Tag
+        id: image
+        run: |
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
+          echo "sha_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
+
+      # --- TRIVY SCAN (SIMPLE & CLEAR) ---
       - name: Trivy Scan
         id: trivy
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ steps.meta.outputs.tags }}
+          image-ref: ${{ steps.image.outputs.sha_tag }}
           format: 'table'
           vuln-type: 'os,library'
           severity: 'HIGH,CRITICAL'
@@ -114,7 +122,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "**Image scanned:**" >> $GITHUB_STEP_SUMMARY
-          echo "\`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ steps.image.outputs.sha_tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### 📄 Full Trivy Report" >> $GITHUB_STEP_SUMMARY
@@ -122,5 +130,6 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
 
 
