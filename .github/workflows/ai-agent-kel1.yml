@@ -94,27 +94,76 @@ jobs:
       #     vuln-type: 'os,library'
       #     severity: 'HIGH,CRITICAL'
 
-      # --- TRIVY SCAN ---
-      - name: Trivy Scan (SHA tag)
+      # --- TRIVY SCAN (JSON + TABLE) ---
+      - name: Trivy Scan
         id: trivy
         run: |
-          echo "Scanning image: ${{ steps.meta.outputs.tags }}"
+          # Ambil hanya tag SHA (bukan latest)
+          IMAGE_SHA_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
+          echo "Using image tag: $IMAGE_SHA_TAG"
+
+          # Scan JSON untuk diolah jadi tabel
+          trivy image \
+            --format json \
+            --vuln-type os,library \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            -o trivy-result.json \
+            "$IMAGE_SHA_TAG"
+
+          # Scan versi tabel biasa (buat full report)
           trivy image \
             --format table \
             --vuln-type os,library \
             --severity HIGH,CRITICAL \
             --exit-code 0 \
-            "${{ steps.meta.outputs.tags }}" \
-            | tee trivy-report.txt
+            "$IMAGE_SHA_TAG" | tee trivy-report.txt
 
-      # --- GITHUB SUMMARY ---
+          # kirim tag ke output step
+          echo "image=$IMAGE_SHA_TAG" >> "$GITHUB_OUTPUT"
+
+      # --- GITHUB SUMMARY AESTHETIC ---
       - name: Upload Trivy Summary
         run: |
           echo "## 🔍 Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Scanned Image:**" >> $GITHUB_STEP_SUMMARY
-          echo "\`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Scanned Image:** \`${{ steps.trivy.outputs.image }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -s trivy-result.json ]; then
+            echo "### 📊 Summary by Severity" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+
+            jq -r '
+              .Results[].Vulnerabilities[]? | .Severity
+            ' trivy-result.json \
+            | sort | uniq -c | sort -nr \
+            | awk '{printf("| %s | %s |\n", $2, $1)}' >> $GITHUB_STEP_SUMMARY
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🧩 Top 10 Vulnerabilities (HIGH/CRITICAL)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | Package | Installed | Fixed | Title |" >> $GITHUB_STEP_SUMMARY
+            echo "|---------|---------|-----------|-------|-------|" >> $GITHUB_STEP_SUMMARY
+
+            jq -r '
+              .Results[].Vulnerabilities[]? 
+              | [.Severity, .PkgName, .InstalledVersion, (.FixedVersion // "-"), (.Title | gsub("\\|"; " "))]
+              | @tsv
+            ' trivy-result.json | head -n 10 | \
+            while IFS=$'\t' read -r sev pkg installed fixed title; do
+              short_title=$(echo "$title" | cut -c1-60)
+              echo "| $sev | $pkg | $installed | $fixed | $short_title |" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "_No HIGH/CRITICAL vulnerabilities found._" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 📄 Full CLI Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
+          cat trivy-report.txt >> $GITHUB_STEP_SUMMARY || echo "No detailed report generated." >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
