@@ -94,24 +94,26 @@ jobs:
       #     vuln-type: 'os,library'
       #     severity: 'HIGH,CRITICAL'
 
-      # --- TRIVY ---
-      - name: Trivy Scan
+      # --- TRIVY SCAN ---
+      - name: Trivy Scan (SHA tag)
         id: trivy
         run: |
+          echo "Scanning image: ${{ steps.meta.outputs.tags }}"
           trivy image \
             --format table \
             --vuln-type os,library \
             --severity HIGH,CRITICAL \
             --exit-code 0 \
-            "${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest" \
+            "${{ steps.meta.outputs.tags }}" \
             | tee trivy-report.txt
 
-      # 🔥 NEW: Tampilkan hasil scanning ke GitHub Summary
+      # --- GITHUB SUMMARY ---
       - name: Upload Trivy Summary
         run: |
           echo "## 🔍 Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo 'Image: **${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest**' >> $GITHUB_STEP_SUMMARY
+          echo "**Scanned Image:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
