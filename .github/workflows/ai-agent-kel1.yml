@@ -94,15 +94,25 @@ jobs:
       #     vuln-type: 'os,library'
       #     severity: 'HIGH,CRITICAL'
 
+            # --- INSTALL TRIVY ---
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget jq
+          wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo tee /etc/apt/trusted.gpg.d/trivy.asc
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb stable main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
       # --- TRIVY SCAN (JSON + TABLE) ---
       - name: Trivy Scan
         id: trivy
         run: |
-          # Ambil hanya tag SHA (bukan latest)
+          # Ambil tag SHA (bukan latest)
           IMAGE_SHA_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
           echo "Using image tag: $IMAGE_SHA_TAG"
 
-          # Scan JSON untuk diolah jadi tabel
+          # Scan JSON untuk tabel
           trivy image \
             --format json \
             --vuln-type os,library \
@@ -111,7 +121,7 @@ jobs:
             -o trivy-result.json \
             "$IMAGE_SHA_TAG"
 
-          # Scan versi tabel biasa (buat full report)
+          # Scan versi table (full CLI)
           trivy image \
             --format table \
             --vuln-type os,library \
@@ -119,7 +129,6 @@ jobs:
             --exit-code 0 \
             "$IMAGE_SHA_TAG" | tee trivy-report.txt
 
-          # kirim tag ke output step
           echo "image=$IMAGE_SHA_TAG" >> "$GITHUB_OUTPUT"
 
       # --- GITHUB SUMMARY AESTHETIC ---
@@ -167,3 +176,4 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY || echo "No detailed report generated." >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
