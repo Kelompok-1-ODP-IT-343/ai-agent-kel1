@@ -83,8 +83,8 @@ jobs:
           build-args: |
             PORT=8000
 
-      # --- TRIVY (Commented) ---
-      # Scan image yang sudah dibuild
+      # # --- TRIVY (Commented) ---
+      # # Scan image yang sudah dibuild
       # - name: Trivy Scan
       #   uses: aquasecurity/trivy-action@0.24.0
       #   with:
@@ -93,3 +93,26 @@ jobs:
       #     exit-code: '0'         # ubah ke '1' kalau mau fail bila ada HIGH/CRITICAL
       #     vuln-type: 'os,library'
       #     severity: 'HIGH,CRITICAL'
+
+      # --- TRIVY ---
+      - name: Trivy Scan
+        id: trivy
+        run: |
+          trivy image \
+            --format table \
+            --vuln-type os,library \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            "${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest" \
+            | tee trivy-report.txt
+
+      # 🔥 NEW: Tampilkan hasil scanning ke GitHub Summary
+      - name: Upload Trivy Summary
+        run: |
+          echo "## 🔍 Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo 'Image: **${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest**' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
