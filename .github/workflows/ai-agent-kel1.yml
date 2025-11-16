@@ -19,7 +19,7 @@ jobs:
   # ============================================================
   prepare_build:
     runs-on: ubuntu-latest
-    name: "📦 Prepare Build Environment"
+    name: "📦 Prepare Build"
 
     steps:
       - uses: actions/checkout@v4
@@ -40,12 +40,11 @@ jobs:
   # ============================================================
   build_python:
     runs-on: ubuntu-latest
-    name: "🟧 Build Python Environment"
+    name: "🟧 Build Python"
     needs: prepare_build
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -66,7 +65,7 @@ jobs:
     needs: build_python
 
     outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
+      sha_tag: ${{ steps.image.outputs.sha_tag }}
 
     steps:
       - uses: actions/checkout@v4
@@ -74,15 +73,17 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Extract Docker metadata
+      # Metadata (SHA + latest tagging)
+      - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
+            type=sha,format=long
 
-      - name: Build image (no push)
+      - name: Build image (no push, with cache)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -90,6 +91,16 @@ jobs:
           push: false
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Extract only SHA tag for next stages
+      - name: Get SHA Tag
+        id: image
+        run: |
+          TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
+          echo "sha_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
 
 
   # ============================================================
@@ -108,7 +119,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Push Docker Image
+      - name: Push Docker Image (latest + sha)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -117,6 +128,9 @@ jobs:
           platforms: linux/amd64
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ needs.build_docker.outputs.sha_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
 
   # ============================================================
@@ -127,11 +141,15 @@ jobs:
     name: "🔍 Trivy Scan"
     needs: push_docker
 
+    outputs:
+      report_file: trivy-report.txt
+
     steps:
-      - name: Scan Docker Image
+      - name: Scan Docker Image using SHA Tag (more accurate)
         uses: aquasecurity/trivy-action@0.24.0
+        id: trivy
         with:
-          image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ needs.build_docker.outputs.sha_tag }}
           format: table
           vuln-type: os,library
           severity: HIGH,CRITICAL
@@ -160,8 +178,14 @@ jobs:
 
       - name: Write Summary
         run: |
-          echo "## 🔍 Trivy Scan Result" >> $GITHUB_STEP_SUMMARY
-          echo "Image scanned: \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Image scanned:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ needs.build_docker.outputs.sha_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📄 Full Trivy Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
