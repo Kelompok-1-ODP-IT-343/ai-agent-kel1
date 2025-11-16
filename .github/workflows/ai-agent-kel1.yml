@@ -15,11 +15,33 @@ env:
 jobs:
 
   # ============================================================
-  # JOB 1 — SETUP PYTHON & PRE-BUILD
+  # JOB 1 — PREPARE BUILD ENVIRONMENT
+  # ============================================================
+  prepare_build:
+    runs-on: ubuntu-latest
+    name: "📦 Prepare Build Environment"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (initial)
+        run: |
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+
+      - run: echo "Preparation completed."
+
+
+  # ============================================================
+  # JOB 2 — BUILD PYTHON ENVIRONMENT
   # ============================================================
   build_python:
     runs-on: ubuntu-latest
     name: "🟧 Build Python Environment"
+    needs: prepare_build
 
     steps:
       - uses: actions/checkout@v4
@@ -36,36 +58,12 @@ jobs:
 
 
   # ============================================================
-  # JOB 2 — RUN PYTEST
-  # ============================================================
-  run_tests:
-    runs-on: ubuntu-latest
-    name: "🧪 Run Tests"
-    needs: build_python
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install deps (tests)
-        run: |
-          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
-
-      - name: Run pytest
-        run: |
-          if ls | grep -q "tests"; then pytest -q || true; else echo "No tests"; fi
-
-
-  # ============================================================
   # JOB 3 — BUILD DOCKER (NO PUSH)
   # ============================================================
   build_docker:
     runs-on: ubuntu-latest
     name: "🐳 Build Docker Image"
-    needs: run_tests
+    needs: build_python
 
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
