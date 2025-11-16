@@ -40,7 +40,7 @@ jobs:
 
 
   # ───────────────────────────────────────────────
-  # 🧪 JOB 2 — RUN TESTS (OPTIONAL)
+  # 🧪 JOB 2 — RUN TESTS
   # ───────────────────────────────────────────────
   run_tests:
     runs-on: ubuntu-latest
@@ -73,10 +73,10 @@ jobs:
     name: "🐳 Build Docker Image"
     needs: run_tests
 
-    # 🔥 OUTPUTS FIX
+    # 🔥 FIXED OUTPUTS (BENAR)
     outputs:
-      tags: ${{ steps.meta.outputs.tags }}
-      labels: ${{ steps.meta.outputs.labels }}
+      tags: ${{ steps.export.outputs.tags }}
+      labels: ${{ steps.export.outputs.labels }}
 
     steps:
       - uses: actions/checkout@v4
@@ -109,6 +109,13 @@ jobs:
           build-args: |
             PORT=8000
 
+      # 🔥 REQUIRED FIX — export ke job outputs
+      - name: Export metadata outputs
+        id: export
+        run: |
+          echo "tags=${{ steps.meta.outputs.tags }}" >> $GITHUB_OUTPUT
+          echo "labels=${{ steps.meta.outputs.labels }}" >> $GITHUB_OUTPUT
+
 
 
   # ───────────────────────────────────────────────
@@ -135,8 +142,6 @@ jobs:
           file: ./Dockerfile
           push: true
           platforms: linux/amd64
-
-          # 🔥 FIXED – pakai OUTPUTS
           tags: ${{ needs.build_docker.outputs.tags }}
           labels: ${{ needs.build_docker.outputs.labels }}
 
