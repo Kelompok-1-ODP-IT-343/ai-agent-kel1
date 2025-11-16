@@ -1,4 +1,4 @@
-name: ai-agent-kel1-dockerhub
+name: ai-agent-kel1-ci
 
 on:
   push:
@@ -12,28 +12,68 @@ env:
   IMAGE_NAME: ai-agent-kel1
   REGISTRY: docker.io
 
+# ───────────────────────────────────────────────
+# 🟧 JOB 1 — SETUP PYTHON / PRE-BUILD
+# ───────────────────────────────────────────────
 jobs:
-  build-and-push:
+  build_python:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
+    name: "🟧 Build Python Environment"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # (Opsional) setup Python kalau kamu mau jalankan unit test
-      # - name: Set up Python
-      #   uses: actions/setup-python@v5
-      #   with:
-      #     python-version: "3.12"
-      # - name: Install deps & run tests
-      #   run: |
-      #     pip install -r requirements.txt
-      #     pytest -q
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+
+      - name: Verify Build Files
+        run: ls -lah
+
+
+
+# ───────────────────────────────────────────────
+# 🧪 JOB 2 — RUN TESTS (OPTIONAL)
+# ───────────────────────────────────────────────
+  run_tests:
+    runs-on: ubuntu-latest
+    name: "🧪 Run Tests"
+    needs: build_python
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps (tests)
+        run: |
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+
+      - name: Run pytest (if exists)
+        run: |
+          if ls | grep -q "tests"; then pytest -q || true; else echo "No tests"; fi
+
+
+
+# ───────────────────────────────────────────────
+# 🐳 JOB 3 — BUILD DOCKER IMAGE
+# ───────────────────────────────────────────────
+  build_docker:
+    runs-on: ubuntu-latest
+    name: "🐳 Build Docker Image"
+    needs: run_tests
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -41,95 +81,114 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=true
+            type=sha,format=long
+            type=ref,event=tag
+
+      - name: Build Docker Image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            PORT=8000
+
+
+
+# ───────────────────────────────────────────────
+# 📤 JOB 4 — PUSH IMAGE
+# ───────────────────────────────────────────────
+  push_docker:
+    runs-on: ubuntu-latest
+    name: "📤 Push Docker Image"
+    needs: build_docker
+
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
-            type=sha,format=long
-            type=ref,event=tag
-
-      # --- SONARCLOUD (Commented) ---
-      # Pastikan file sonar-project.properties ada di repo
-      # - name: SonarCloud Scan
-      #   uses: SonarSource/sonarcloud-github-action@v2
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #   with:
-      #     args: >
-      #       -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-      #       -Dsonar.organization=${{ secrets.SONAR_ORG }}
-      #       -Dsonar.python.version=3.12
-
-      - name: Build and push (Docker Hub)
+      - name: Push Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            PORT=8000
+          tags: ${{ needs.build_docker.steps.meta.outputs.tags }}
+          labels: ${{ needs.build_docker.steps.meta.outputs.labels }}
 
-      # # --- TRIVY (Commented) ---
-      # # Scan image yang sudah dibuild
-      # - name: Trivy Scan
-      #   uses: aquasecurity/trivy-action@0.24.0
-      #   with:
-      #     image-ref: ${{ steps.meta.outputs.tags }}
-      #     format: 'table'
-      #     exit-code: '0'         # ubah ke '1' kalau mau fail bila ada HIGH/CRITICAL
-      #     vuln-type: 'os,library'
-      #     severity: 'HIGH,CRITICAL'
 
-                  # --- GET SHA TAG ONLY (Fix multiple targets) ---
-      - name: Get SHA Tag
+
+# ───────────────────────────────────────────────
+# 🔍 JOB 5 — TRIVY IMAGE SCAN
+# ───────────────────────────────────────────────
+  trivy_scan:
+    runs-on: ubuntu-latest
+    name: "🔍 Trivy Scan Image"
+    needs: push_docker
+
+    steps:
+      - name: Extract SHA Tag
         id: image
         run: |
-          TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
+          TAG=$(echo "${{ needs.build_docker.steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
           echo "sha_tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Using tag: $TAG"
 
-      # --- TRIVY SCAN (SIMPLE & CLEAR) ---
       - name: Trivy Scan
         id: trivy
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: ${{ steps.image.outputs.sha_tag }}
-          format: 'table'
-          vuln-type: 'os,library'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '0'
+          format: table
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
           ignore-unfixed: false
+          exit-code: 0
           output: trivy-report.txt
 
-      # --- GITHUB SUMMARY (CLEAR) ---
-      - name: Upload Trivy Summary
+      - name: Upload Trivy Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+
+
+
+# ───────────────────────────────────────────────
+# 📄 JOB 6 — TRIVY SUMMARY
+# ───────────────────────────────────────────────
+  trivy_summary:
+    runs-on: ubuntu-latest
+    name: "📄 Trivy Summary"
+    needs: trivy_scan
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: trivy-report
+
+      - name: Write GitHub Summary
         run: |
           echo "## 🔍 Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "**Image scanned:**" >> $GITHUB_STEP_SUMMARY
-          echo "\`${{ steps.image.outputs.sha_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image scanned:** \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "### 📄 Full Trivy Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📄 Full Trivy Report:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-
-
-
