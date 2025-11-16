@@ -14,19 +14,17 @@ env:
 
 jobs:
 
-  # ───────────────────────────────────────────────
-  # 🟧 JOB 1 — SETUP PYTHON / PRE-BUILD
-  # ───────────────────────────────────────────────
+  # ============================================================
+  # JOB 1 — SETUP PYTHON & PRE-BUILD
+  # ============================================================
   build_python:
     runs-on: ubuntu-latest
     name: "🟧 Build Python Environment"
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
@@ -34,14 +32,12 @@ jobs:
         run: |
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
 
-      - name: Verify Build Files
-        run: ls -lah
+      - run: ls -lah
 
 
-
-  # ───────────────────────────────────────────────
-  # 🧪 JOB 2 — RUN TESTS
-  # ───────────────────────────────────────────────
+  # ============================================================
+  # JOB 2 — RUN PYTEST
+  # ============================================================
   run_tests:
     runs-on: ubuntu-latest
     name: "🧪 Run Tests"
@@ -50,8 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
@@ -59,33 +54,27 @@ jobs:
         run: |
           if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
 
-      - name: Run pytest (if exists)
+      - name: Run pytest
         run: |
           if ls | grep -q "tests"; then pytest -q || true; else echo "No tests"; fi
 
 
-
-  # ───────────────────────────────────────────────
-  # 🐳 JOB 3 — BUILD DOCKER IMAGE
-  # ───────────────────────────────────────────────
+  # ============================================================
+  # JOB 3 — BUILD DOCKER (NO PUSH)
+  # ============================================================
   build_docker:
     runs-on: ubuntu-latest
     name: "🐳 Build Docker Image"
     needs: run_tests
 
-    # 🔥 FIXED OUTPUTS (BENAR)
     outputs:
-      tags: ${{ steps.export.outputs.tags }}
-      labels: ${{ steps.export.outputs.labels }}
+      image_tag: ${{ steps.meta.outputs.tags }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Extract Docker metadata
         id: meta
@@ -93,11 +82,9 @@ jobs:
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=true
-            type=sha,format=long
-            type=ref,event=tag
+            type=raw,value=latest
 
-      - name: Build Docker Image (no push)
+      - name: Build image (no push)
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -105,22 +92,11 @@ jobs:
           push: false
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            PORT=8000
-
-      # 🔥 REQUIRED FIX — export ke job outputs
-      - name: Export metadata outputs
-        id: export
-        run: |
-          echo "tags=${{ steps.meta.outputs.tags }}" >> $GITHUB_OUTPUT
-          echo "labels=${{ steps.meta.outputs.labels }}" >> $GITHUB_OUTPUT
 
 
-
-  # ───────────────────────────────────────────────
-  # 📤 JOB 4 — PUSH IMAGE
-  # ───────────────────────────────────────────────
+  # ============================================================
+  # JOB 4 — PUSH IMAGE TO DOCKER HUB
+  # ============================================================
   push_docker:
     runs-on: ubuntu-latest
     name: "📤 Push Docker Image"
@@ -129,8 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -142,31 +117,23 @@ jobs:
           file: ./Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ needs.build_docker.outputs.tags }}
-          labels: ${{ needs.build_docker.outputs.labels }}
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
 
 
-
-  # ───────────────────────────────────────────────
-  # 🔍 JOB 5 — TRIVY IMAGE SCAN
-  # ───────────────────────────────────────────────
+  # ============================================================
+  # JOB 5 — TRIVY SCAN
+  # ============================================================
   trivy_scan:
     runs-on: ubuntu-latest
-    name: "🔍 Trivy Scan Image"
+    name: "🔍 Trivy Scan"
     needs: push_docker
 
     steps:
-      - name: Extract SHA Tag
-        id: image
-        run: |
-          TAG=$(echo "${{ needs.build_docker.outputs.tags }}" | grep 'sha-' | head -n 1)
-          echo "sha_tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Trivy Scan
-        id: trivy
+      - name: Scan Docker Image
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ steps.image.outputs.sha_tag }}
+          image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
           format: table
           vuln-type: os,library
           severity: HIGH,CRITICAL
@@ -174,17 +141,15 @@ jobs:
           exit-code: 0
           output: trivy-report.txt
 
-      - name: Upload Trivy Report Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: trivy-report
           path: trivy-report.txt
 
 
-
-  # ───────────────────────────────────────────────
-  # 📄 JOB 6 — TRIVY SUMMARY
-  # ───────────────────────────────────────────────
+  # ============================================================
+  # JOB 6 — GITHUB SUMMARY
+  # ============================================================
   trivy_summary:
     runs-on: ubuntu-latest
     name: "📄 Trivy Summary"
@@ -195,13 +160,11 @@ jobs:
         with:
           name: trivy-report
 
-      - name: Write GitHub Summary
+      - name: Write Summary
         run: |
-          echo "## 🔍 Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔍 Trivy Scan Result" >> $GITHUB_STEP_SUMMARY
+          echo "Image scanned: \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Image scanned:** \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📄 Full Trivy Report:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat trivy-report.txt >> $GITHUB_STEP_SUMMARY
           echo '```'
