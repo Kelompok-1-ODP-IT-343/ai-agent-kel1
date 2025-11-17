@@ -35,18 +35,18 @@ The server runs at `http://localhost:9090`.
 
 ### Credit Score Endpoints
 
-- `POST /api/v1/credit-score`
+- `POST /api/v2/credit-score`
   - Body examples:
     - `{ "user_id": "U123" }` → fetch (or create dummy) then score
     - `{ "user_id": "U123", <overrides> }` → upsert then score
     - `{ <full/partial profile w/o user_id> }` → score only (no DB)
 
-- `GET /api/v1/credit-profile/<user_id>` → fetch stored profile
-- `POST|PUT /api/v1/credit-profile` → upsert profile from body
+- `GET /api/v2/credit-profile/<user_id>` → fetch stored profile
+- `POST|PUT /api/v2/credit-profile` → upsert profile from body
 
 ### Recommendation System Endpoint
 
-- `POST /api/v1/recommendation-system`
+- `POST /api/v2/recommendation-system`
   - Evaluates KPR (mortgage) applications using ensemble decision-making
   - Body:
     ```json
@@ -70,6 +70,27 @@ The server runs at `http://localhost:9090`.
 ### Health Check
 
 - `GET /health` → health check
+
+## Authentication
+
+All `/api/v2/*` endpoints require a JWT bearer token with an authorized role:
+
+- Allowed roles: `APPROVER` or `DEVELOPER`
+- Provide header: `Authorization: Bearer <JWT>`
+- If the role is not permitted, the API returns `403 Forbidden`.
+- If the token is missing/invalid, the API returns `401 Unauthorized`.
+
+JWT verification:
+
+- Set `JWT_SECRET` in your environment (HS256 by default) to enable signature verification.
+- Without `JWT_SECRET`, the app will still decode the token but will NOT verify the signature (development only).
+
+Environment example (append to your `.env`):
+
+```
+JWT_SECRET=change_me_in_production
+JWT_ALGORITHM=HS256
+```
 
 ## Notes
 - This is an educational FICO-like model. It is not the actual FICO formula.
