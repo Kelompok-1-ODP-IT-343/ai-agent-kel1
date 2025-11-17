@@ -90,7 +90,7 @@ jobs:
         image-ref: maulanabn99/ai-agent-kel1:sha-9a805c8
         format: json
         vuln-type: os,library
-        severity: CRITICAL
+        severity: HIGH,CRITICAL
         exit-code: 0
         ignore-unfixed: false
         output: trivy-report.json
@@ -100,18 +100,23 @@ jobs:
         echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 
+        HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
+        echo "Total High Vulnerabilities: $HIGH" >> $GITHUB_STEP_SUMMARY
+
         CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
         echo "Total Critical Vulnerabilities: $CRITICAL" >> $GITHUB_STEP_SUMMARY
 
-        PACKAGES=$(jq -r '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL") | .PkgName] | unique | length' trivy-report.json)
-        echo "Affected Packages: $PACKAGES" >> $GITHUB_STEP_SUMMARY
+        HIGH_PKGS=$(jq -r '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH") | .PkgName] | unique | length' trivy-report.json)
+        echo "Affected Packages (High): $HIGH_PKGS" >> $GITHUB_STEP_SUMMARY
+
+        CRIT_PKGS=$(jq -r '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL") | .PkgName] | unique | length' trivy-report.json)
+        echo "Affected Packages (Critical): $CRIT_PKGS" >> $GITHUB_STEP_SUMMARY
 
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Package | Installed | Fixed | CVE | Link |" >> $GITHUB_STEP_SUMMARY
-        echo "|---------|-----------|-------|-----|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Package | Severity | Installed | Fixed | CVE | Link |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------|----------|-----------|-------|-----|------|" >> $GITHUB_STEP_SUMMARY
+
         jq -r '
           .Results[].Vulnerabilities[]? |
-          "| \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
+          "| \(.PkgName) | \(.Severity) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
         ' trivy-report.json >> $GITHUB_STEP_SUMMARY
-
-
