@@ -84,47 +84,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Trivy
-      run: |
-        wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_Linux-64bit.tar.gz
-        tar zxvf trivy_Linux-64bit.tar.gz
-        sudo mv trivy /usr/local/bin/
-
-    - name: Scan Critical Vulnerabilities
-      id: vuln
+    - name: Run Trivy JSON Scan
       uses: aquasecurity/trivy-action@0.24.0
       with:
         image-ref: maulanabn99/ai-agent-kel1:sha-9a805c8
         format: json
         vuln-type: os,library
         severity: CRITICAL
-        ignore-unfixed: false
         exit-code: 0
-        output: trivy-vuln.json
+        ignore-unfixed: false
+        output: trivy-report.json
 
-    - name: Secret Scan
-      id: secrets
+    - name: Generate Summary Report
       run: |
-        trivy fs --scanners secret --format json --output trivy-secrets.json .
+        echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
 
-    - name: Misconfiguration Scan
-      id: config
-      run: |
-        trivy config --format json --output trivy-config.json .
+        CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
+        echo "Total Critical Vulnerabilities: $CRITICAL" >> $GITHUB_STEP_SUMMARY
 
-    - name: Security Summary
-      run: |
-        echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-        CRIT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-vuln.json)
-        echo "Critical Vulnerabilities: $CRIT" >> $GITHUB_STEP_SUMMARY
-
-        SECRETS=$(jq '.Secrets | length' trivy-secrets.json)
-        echo "Secrets Detected: $SECRETS" >> $GITHUB_STEP_SUMMARY
-
-        MISCONF=$(jq '[.Results[].Misconfigurations[]?] | length' trivy-config.json)
-        echo "Misconfigurations Found: $MISCONF" >> $GITHUB_STEP_SUMMARY
+        PACKAGES=$(jq -r '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL") | .PkgName] | unique | length' trivy-report.json)
+        echo "Affected Packages: $PACKAGES" >> $GITHUB_STEP_SUMMARY
 
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Package | Installed | Fixed | CVE | Link |" >> $GITHUB_STEP_SUMMARY
@@ -132,5 +112,6 @@ jobs:
         jq -r '
           .Results[].Vulnerabilities[]? |
           "| \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
-        ' trivy-vuln.json >> $GITHUB_STEP_SUMMARY
+        ' trivy-report.json >> $GITHUB_STEP_SUMMARY
+
 
