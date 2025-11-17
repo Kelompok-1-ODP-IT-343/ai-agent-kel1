@@ -32,9 +32,7 @@ jobs:
     name: Build And Push Image
     needs: prepare_environment
     runs-on: ubuntu-latest
-
-    outputs:
-      sha_tag: ${{ steps.extract_sha.outputs.sha }}
+    if: github.event_name != 'pull_request'
 
     permissions:
       contents: read
@@ -45,24 +43,25 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Docker metadata
+      - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
+            type=ref,event=branch,pattern=main,name=latest
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and Push Image
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -75,13 +74,6 @@ jobs:
           build-args: |
             PORT=8000
 
-      - name: Extract SHA tag
-        id: extract_sha
-        run: |
-          SHA=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "Using SHA: $SHA"
-
 
   security_scan:
     name: Security Scan
@@ -92,7 +84,7 @@ jobs:
       - name: Run Trivy JSON Scan
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ needs.build_and_push_image.outputs.sha_tag }}
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
           format: json
           vuln-type: os,library
           severity: HIGH,CRITICAL
@@ -105,15 +97,15 @@ jobs:
           echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "**Image scanned:** \`${{ needs.build_and_push_image.outputs.sha_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image scanned:** \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
-          CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
+          HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-report.json)
+          CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-report.json)
 
           echo "### Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- High: $HIGH" >> $GITHUB_STEP_SUMMARY
-          echo "- Critical: $CRITICAL" >> $GITHUB_STEP_SUMMARY
+          echo "- High: $HIGH_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Critical: $CRITICAL_COUNT" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### Details" >> $GITHUB_STEP_SUMMARY
@@ -126,4 +118,4 @@ jobs:
           ' trivy-report.json >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Generated automatically from Trivy JSON report." >> $GITHUB_STEP_SUMMARY
+          echo "> Generated automatically via Trivy JSON report." >> $GITHUB_STEP_SUMMARY
