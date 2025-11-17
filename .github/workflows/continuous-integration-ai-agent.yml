@@ -86,6 +86,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install Trivy
+      run: |
+        wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_Linux-64bit.tar.gz
+        tar zxvf trivy_Linux-64bit.tar.gz
+        sudo mv trivy /usr/local/bin/
+
     - name: Scan Critical Vulnerabilities
       id: vuln
       uses: aquasecurity/trivy-action@0.24.0
@@ -111,15 +117,14 @@ jobs:
     - name: Security Summary
       run: |
         echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-
         CRIT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-vuln.json)
         echo "Critical Vulnerabilities: $CRIT" >> $GITHUB_STEP_SUMMARY
 
         SECRETS=$(jq '.Secrets | length' trivy-secrets.json)
         echo "Secrets Detected: $SECRETS" >> $GITHUB_STEP_SUMMARY
 
-        MISCONF=$(jq '[.Results[].Misconfigurations[]? | select(.Severity=="CRITICAL")] | length' trivy-config.json)
-        echo "Critical Misconfigurations: $MISCONF" >> $GITHUB_STEP_SUMMARY
+        MISCONF=$(jq '[.Results[].Misconfigurations[]?] | length' trivy-config.json)
+        echo "Misconfigurations Found: $MISCONF" >> $GITHUB_STEP_SUMMARY
 
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Package | Installed | Fixed | CVE | Link |" >> $GITHUB_STEP_SUMMARY
@@ -128,3 +133,4 @@ jobs:
           .Results[].Vulnerabilities[]? |
           "| \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
         ' trivy-vuln.json >> $GITHUB_STEP_SUMMARY
+
