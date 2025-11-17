@@ -78,7 +78,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-    security_scan:
+  security_scan:
     name: Security Scan
     needs: build_and_push_image
     runs-on: ubuntu-latest
