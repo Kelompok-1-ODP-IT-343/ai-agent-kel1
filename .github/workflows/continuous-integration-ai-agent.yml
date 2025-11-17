@@ -5,7 +5,6 @@ on:
     branches: [main]
     tags: ["v*", "release-*"]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 env:
@@ -16,6 +15,7 @@ jobs:
   prepare_environment:
     name: Prepare Environment
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,9 +23,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
 
 
   build_and_push_image:
@@ -38,30 +38,32 @@ jobs:
       contents: read
       packages: write
 
+    outputs:
+      sha_tag: ${{ steps.get_sha.outputs.sha }}
+
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Docker meta
+      - name: Docker Meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=sha,prefix=sha-
             type=ref,event=branch,pattern=main,name=latest
             type=ref,event=tag
-          labels: |
-            org.opencontainers.image.source=${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
 
-      - uses: docker/login-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - name: Build and Push Image
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
@@ -71,8 +73,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            PORT=8000
+
+      - name: Extract SHA Tag
+        id: get_sha
+        run: |
+          SHA=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Using SHA: $SHA"
 
 
   security_scan:
@@ -84,7 +91,7 @@ jobs:
       - name: Run Trivy JSON Scan
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          image-ref: ${{ needs.build_and_push_image.outputs.sha_tag }}
           format: json
           vuln-type: os,library
           severity: HIGH,CRITICAL
@@ -92,20 +99,20 @@ jobs:
           ignore-unfixed: false
           output: trivy-report.json
 
-      - name: Generate Clean Summary + Table Report
+      - name: Generate Summary Report
         run: |
           echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          echo "**Image scanned:** \`${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "Image scanned: \`${{ needs.build_and_push_image.outputs.sha_tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-report.json)
-          CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-report.json)
+          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
+          CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
 
           echo "### Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- High: $HIGH_COUNT" >> $GITHUB_STEP_SUMMARY
-          echo "- Critical: $CRITICAL_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- High: $HIGH" >> $GITHUB_STEP_SUMMARY
+          echo "- Critical: $CRITICAL" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### Details" >> $GITHUB_STEP_SUMMARY
@@ -116,6 +123,3 @@ jobs:
             .Results[].Vulnerabilities[]? |
             "| \(.PkgName) | \(.Severity) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
           ' trivy-report.json >> $GITHUB_STEP_SUMMARY
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Generated automatically via Trivy JSON report." >> $GITHUB_STEP_SUMMARY
