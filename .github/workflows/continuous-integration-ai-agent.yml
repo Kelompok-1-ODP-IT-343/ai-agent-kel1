@@ -32,16 +32,11 @@ jobs:
     needs: prepare_environment
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      packages: write
-
     outputs:
-      sha_tag: ${{ steps.get_sha.outputs.sha_tag }}
+      sha_tag: ${{ steps.get_sha.outputs.sha }}
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
@@ -49,14 +44,11 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/heads/main') }}
-          labels: |
-            org.opencontainers.image.source=${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
 
       - uses: docker/login-action@v3
         with:
@@ -73,15 +65,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            PORT=8000
 
-      - name: Get SHA Tag
+      - name: Extract SHA Tag
         id: get_sha
         run: |
           SHA=$(echo "${{ steps.meta.outputs.tags }}" | grep 'sha-' | head -n 1)
-          echo "sha_tag=$SHA" >> $GITHUB_OUTPUT
-          echo "Using SHA Image: $SHA"
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "Using SHA image: $SHA"
 
 
   security_scan:
@@ -105,15 +95,16 @@ jobs:
         run: |
           echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "**Image scanned:** \`${{ needs.build_and_push_image.outputs.sha_tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          HIGH_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' trivy-report.json)
-          CRITICAL_COUNT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' trivy-report.json)
+          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
+          CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
 
           echo "### Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- High: $HIGH_COUNT" >> $GITHUB_STEP_SUMMARY
-          echo "- Critical: $CRITICAL_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- High: $HIGH" >> $GITHUB_STEP_SUMMARY
+          echo "- Critical: $CRITICAL" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### Details" >> $GITHUB_STEP_SUMMARY
@@ -126,4 +117,4 @@ jobs:
           ' trivy-report.json >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Scan completed with SHA-based immutable image." >> $GITHUB_STEP_SUMMARY
+          echo "> Generated automatically from Trivy JSON report." >> $GITHUB_STEP_SUMMARY
