@@ -78,36 +78,68 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  security_scan:
+    security_scan:
     name: Security Scan
     needs: build_and_push_image
     runs-on: ubuntu-latest
+
     steps:
-      - name: Run Trivy JSON Scan
+      - name: Run CRITICAL Vulnerability Scan Only
+        id: vuln
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: maulanabn99/ai-agent-kel1:sha-9a805c8
           format: json
           vuln-type: os,library
-          severity: HIGH,CRITICAL
-          exit-code: 0
+          severity: CRITICAL           
+          exit-code: 1                 
           ignore-unfixed: false
-          output: trivy-report.json
-      - name: Generate Summary Report
+          output: trivy-vuln.json
+
+      - name: Run Secret Scan
+        id: secrets
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: secret
+          format: json
+          exit-code: 1                 
+          output: trivy-secrets.json
+
+      - name: Run Misconfiguration Scan
+        id: config
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: config
+          format: json
+          exit-code: 1                 
+          output: trivy-config.json
+
+      - name: Generate Security Summary
         run: |
-          echo "## Trivy Vulnerability Scan Report" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔐 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Image scanned: \`maulanabn99/ai-agent-kel1:sha-9a805c8\`" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🚨 Critical Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          CRIT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-vuln.json)
+          echo "- CRITICAL Found: **$CRIT**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-report.json)
-          CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
-          echo "### Summary" >> $GITHUB_STEP_SUMMARY
-          echo "High: $HIGH" >> $GITHUB_STEP_SUMMARY
-          echo "Critical: $CRITICAL" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🔑 Secrets Detection" >> $GITHUB_STEP_SUMMARY
+          SECRETS=$(jq '.Secrets | length' trivy-secrets.json)
+          echo "- Secrets Found: **$SECRETS**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Package | Severity | Installed | Fixed | CVE | Link |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|----------|-----------|-------|-----|------|" >> $GITHUB_STEP_SUMMARY
+
+          echo "### ⚙️ Misconfiguration Scan" >> $GITHUB_STEP_SUMMARY
+          MISCONF=$(jq '[.Results[].Misconfigurations[]? | select(.Severity=="CRITICAL")] | length' trivy-config.json)
+          echo "- Critical Misconfig: **$MISCONF**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### Detailed CRITICAL Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Installed | Fixed | CVE | Link |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-----------|-------|-----|------|" >> $GITHUB_STEP_SUMMARY
+
           jq -r '
             .Results[].Vulnerabilities[]? |
-            "| \(.PkgName) | \(.Severity) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
-          ' trivy-report.json >> $GITHUB_STEP_SUMMARY
+            "| \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
+          ' trivy-vuln.json >> $GITHUB_STEP_SUMMARY
+
