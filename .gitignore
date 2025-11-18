@@ -6,3 +6,5 @@ ENV/
 .python-venv/
 */venv/
 */.venv/
+SAMPLE_REQUEST.md
+test_request.json

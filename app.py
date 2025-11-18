@@ -1,7 +1,10 @@
 from dataclasses import asdict, replace
-from typing import Dict, Any
+from typing import Dict, Any, Callable, Iterable
+import os
+import functools
 from flask import Flask, request, jsonify
 from flask_cors import CORS  # ← NEW
+import jwt
 
 # ---- Import domain services & repositories ----
 from services.scoring import (
@@ -35,7 +38,11 @@ CORS(
                 "http://localhost:3002",
                 "http://127.0.0.1:3002",       
                 "http://localhost:3004",
-                "http://127.0.0.1:3004",      # if you ever proxy FE here
+                "http://127.0.0.1:3004", 
+                "http://localhost:3001",
+                "http://127.0.0.1:3001",     # if you ever proxy FE here
+                "http://localhost:3003",
+                "http://127.0.0.1:3003",
                 "https://local-dev.satuatap.my.id" # your dev domain
             ],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -47,8 +54,81 @@ CORS(
 
 ## All business logic and DB code are located in services/ and repositories/
 
+# ================== AUTH (JWT) ==================
+ALLOWED_ROLES = {"APPROVER", "DEVELOPER", "ADMIN"}
+JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+
+
+def _decode_jwt_from_header() -> Dict[str, Any]:
+    """Decode JWT from Authorization: Bearer <token> header.
+    - Returns the decoded claims dict if successful.
+    - Raises ValueError with message on client errors (missing/format/invalid token).
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header:
+        raise ValueError("Authorization header missing")
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise ValueError("Authorization header must be 'Bearer <token>'")
+    token = parts[1]
+
+    # Prefer verifying signature when secret is configured; otherwise decode without verification (development only).
+    try:
+        if JWT_SECRET:
+            claims = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        else:
+            # No secret configured — decode without signature verification (NOT recommended for production)
+            claims = jwt.decode(
+                token,
+                options={"verify_signature": False, "verify_exp": True},
+                algorithms=[JWT_ALGORITHM],
+            )
+        return claims
+    except jwt.exceptions.InvalidTokenError as e:
+        # Covers expired, invalid signature, decode errors, etc.
+        raise ValueError(f"Invalid token: {str(e)}")
+
+
+def require_roles(roles: Iterable[str]) -> Callable:
+    """Flask route decorator that enforces role-based access via JWT.
+
+    - Accepts a collection of allowed role names.
+    - 401 if token missing/invalid; 403 if role not permitted.
+    """
+
+    allowed = {r.upper() for r in roles}
+
+    def decorator(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                claims = _decode_jwt_from_header()
+            except ValueError as e:
+                return jsonify({"success": False, "message": str(e)}), 401
+
+            role = str(claims.get("role", "")).upper()
+            if role not in allowed:
+                return (
+                    jsonify({
+                        "success": False,
+                        "message": "forbidden: role not permitted",
+                        "role": role or None,
+                        "allowed_roles": sorted(list(allowed)),
+                    }),
+                    403,
+                )
+            # Optionally expose claims to downstream handlers via request context if needed
+            request.jwt_claims = claims  # type: ignore[attr-defined]
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
 # ================== API ENDPOINTS ==================
-@app.route("/api/v1/credit-score", methods=["POST"])
+@app.route("/api/v2/credit-score", methods=["POST"])
+@require_roles(ALLOWED_ROLES)
 def credit_score():
     """
     Body:
@@ -115,7 +195,8 @@ def credit_score():
         "note": "Model edukatif FICO-like (BUKAN rumus FICO asli)."
     })
 
-@app.route("/api/v1/credit-profile/<user_id>", methods=["GET"])
+@app.route("/api/v2/credit-profile/<user_id>", methods=["GET"])
+@require_roles(ALLOWED_ROLES)
 def get_credit_profile(user_id: str):
     with SessionLocal() as s:
         rec = s.get(CreditProfileORM, user_id)
@@ -123,7 +204,8 @@ def get_credit_profile(user_id: str):
             return jsonify({"success": False, "message": "user_id tidak ditemukan"}), 404
         return jsonify({"success": True, "user_id": user_id, "profile": asdict(orm_to_dc(rec))})
 
-@app.route("/api/v1/credit-profile", methods=["POST", "PUT"])
+@app.route("/api/v2/credit-profile", methods=["POST", "PUT"])
+@require_roles(ALLOWED_ROLES)
 def upsert_credit_profile():
     if not request.is_json:
         return jsonify({"success": False, "message": "Content-Type harus application/json"}), 400
@@ -155,7 +237,8 @@ def upsert_credit_profile():
             s.commit()
             return jsonify({"success": True, "created": False, "user_id": user_id, "profile": asdict(dc)})
 
-@app.route("/api/v1/recommendation-system", methods=["POST"])
+@app.route("/api/v2/recommendation-system", methods=["POST"])
+@require_roles(ALLOWED_ROLES)
 def recommendation_system():
     """
     KPR Recommendation System endpoint.
@@ -240,7 +323,7 @@ def recommendation_system():
             "timestamp": data.get("timestamp") if isinstance(data, dict) else None
         })
         
-    except ImportError as e:
+    except ImportError:
         return jsonify({
             "success": False,
             "message": "Recommendation service not available. Please install required dependencies: google-genai, python-dotenv"
