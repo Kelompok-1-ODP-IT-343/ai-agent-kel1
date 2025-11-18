@@ -55,7 +55,7 @@ CORS(
 ## All business logic and DB code are located in services/ and repositories/
 
 # ================== AUTH (JWT) ==================
-ALLOWED_ROLES = {"APPROVER", "DEVELOPER"}
+ALLOWED_ROLES = {"APPROVER", "DEVELOPER", "ADMIN"}
 JWT_SECRET = os.getenv("JWT_SECRET")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 

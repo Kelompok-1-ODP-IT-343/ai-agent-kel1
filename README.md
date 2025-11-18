@@ -73,9 +73,9 @@ The server runs at `http://localhost:9090`.
 
 ## Authentication
 
-All `/api/v2/*` endpoints require a JWT bearer token with an authorized role:
+All `/api/v1/*` endpoints require a JWT bearer token with an authorized role:
 
-- Allowed roles: `APPROVER` or `DEVELOPER`
+- Allowed roles: `APPROVER`, `DEVELOPER`, or `ADMIN`
 - Provide header: `Authorization: Bearer <JWT>`
 - If the role is not permitted, the API returns `403 Forbidden`.
 - If the token is missing/invalid, the API returns `401 Unauthorized`.
