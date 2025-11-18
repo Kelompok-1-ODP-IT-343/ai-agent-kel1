@@ -43,7 +43,9 @@ CORS(
                 "http://127.0.0.1:3001",     # if you ever proxy FE here
                 "http://localhost:3003",
                 "http://127.0.0.1:3003",
-                "https://local-dev.satuatap.my.id" # your dev domain
+                "https://admin.satuatap.my.id", # your dev domain
+                "https://staff.satuatap.my.id",
+                "https://developer.satuatap.my.id"
             ],
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
