@@ -115,7 +115,7 @@ jobs:
           "| \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
         ' trivy-report.json >> $GITHUB_STEP_SUMMARY
 
-gitops_update:
+  gitops_update:
     name: GitOps Update
     needs: [build_and_push_image, security_scan]
     runs-on: ubuntu-latest
