@@ -115,30 +115,30 @@ jobs:
           "| \(.PkgName) | \(.InstalledVersion) | \(.FixedVersion // "-") | \(.VulnerabilityID) | \(.PrimaryURL) |"
         ' trivy-report.json >> $GITHUB_STEP_SUMMARY
 
-  # gitops_update:
-  #   name: GitOps Update
-  #   needs: security_scan
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout infra-management repository
-  #       uses: actions/checkout@v4
-  #       with:
-  #         repository: kelompok-1-odp-it-343/infra-management
-  #         token: ${{ secrets.ACCESS_TOKEN }}
-  #         path: infra-management
-  #         ref: main
+gitops_update:
+    name: GitOps Update
+    needs: [build_and_push_image, security_scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout infra-management repository
+        uses: actions/checkout@v4
+        with:
+          repository: kelompok-1-odp-it-343/infra-management
+          token: ${{ secrets.ACCESS_TOKEN }}
+          path: infra-management
+          ref: main
 
-  #     - name: Update AI-Agent image tag
-  #       run: |
-  #         cd infra-management/apps/ai-agent
-  #         sed -i "s|image: .*/ai-agent-kel1:.*|image: maulanabn99/ai-agent-kel1:sha-${{ github.sha }}|g" deployment.yaml
+      - name: Update Developer Frontend image tag
+        run: |
+          cd infra-management/apps/ai-agent
+          sed -i "s|image: maulanabn99/ai-agent-kel1:.*|image: maulanabn99/ai-agent-kel1:sha-${GITHUB_SHA::7}|g" deployment.yaml
 
-  #     - name: Commit and Push Changes
-  #       run: |
-  #         cd infra-management
-  #         git config user.name "github-actions[bot]"
-  #         git config user.email "github-actions[bot]@users.noreply.github.com"
-  #         git add .
-  #         git commit -m "Update AI Agent image to sha-${{ github.sha }}" || echo "No changes to commit"
-  #         git push origin main
+      - name: Commit and Push Changes
+        run: |
+          cd infra-management
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Update ai-agent image to sha-${GITHUB_SHA::7}"
+          git push origin main
 
