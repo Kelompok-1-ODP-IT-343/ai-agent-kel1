@@ -59,7 +59,7 @@ CORS(
 # ================== AUTH (JWT) ==================
 ALLOWED_ROLES = {"APPROVER", "DEVELOPER", "ADMIN"}
 JWT_SECRET = os.getenv("JWT_SECRET")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS384")
 
 
 def _decode_jwt_from_header() -> Dict[str, Any]:

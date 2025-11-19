@@ -8,3 +8,4 @@ ENV/
 */.venv/
 SAMPLE_REQUEST.md
 test_request.json
+.env
