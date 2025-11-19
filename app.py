@@ -83,7 +83,7 @@ def _decode_jwt_from_header() -> Dict[str, Any]:
             # No secret configured — decode without signature verification (NOT recommended for production)
             claims = jwt.decode(
                 token,
-                options={"verify_signature": False, "verify_exp": True},
+                options={"verify_signature": True, "verify_exp": True},
                 algorithms=[JWT_ALGORITHM],
             )
         return claims
