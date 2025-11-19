@@ -1,10 +1,11 @@
 # Python virtual envs
 venv/
 .venv/
-env/
+.env/
 ENV/
 .python-venv/
 */venv/
 */.venv/
 SAMPLE_REQUEST.md
 test_request.json
+.env

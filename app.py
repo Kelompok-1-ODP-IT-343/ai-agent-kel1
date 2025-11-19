@@ -59,12 +59,12 @@ CORS(
 # ================== AUTH (JWT) ==================
 ALLOWED_ROLES = {"APPROVER", "DEVELOPER", "ADMIN"}
 JWT_SECRET = os.getenv("JWT_SECRET")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS384")
 
 
 def _decode_jwt_from_header() -> Dict[str, Any]:
     """Decode JWT from Authorization: Bearer <token> header.
-    - Returns the decoded claims dict if successful.
+    - Returns the decoded claims dict if successf   ul.
     - Raises ValueError with message on client errors (missing/format/invalid token).
     """
     auth_header = request.headers.get("Authorization", "")
